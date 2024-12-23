@@ -1,0 +1,14 @@
+streamlit
+pandas
+azure-core
+azure-ai-formrecognizer
+azure-storage-blob
+matplotlib
+Pillow
+opencv-python
+numpy
+PyMuPDF
+plotly
+requests
+openpyxl
+openai
