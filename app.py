@@ -9,6 +9,9 @@ import fitz  # PyMuPDF
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.storage.blob import BlobServiceClient
+from azure.search.documents import SearchClient
+from azure.search.documents.indexes import SearchIndexClient
+from azure.search.documents.models import QueryType
 
 # Azure Document Intelligence Client Setup
 endpoint = "https://nexus-docintelligence.cognitiveservices.azure.com/"
@@ -20,6 +23,13 @@ blob_service_client = BlobServiceClient.from_connection_string(
     "DefaultEndpointsProtocol=https;AccountName=nexusdmscontainer;AccountKey=CEJ/Lop0ZE+McD9kFDo2rOUFfZqAFOyO3oT1WwAu89I8dxru2zXmbq5wsG+1m5CyLEyrxCqXGbrW+AStDlK4Rw==;EndpointSuffix=core.windows.net"
 )
 container_name = "documents"
+
+# Azure Cognitive Search Client Setup
+search_endpoint = "https://nexusdms.search.windows.net"
+search_key = "XhOwiPYAqUVeBSe5eWgUJD2JkCNNraxgQrDfGAvvM1AzSeBI5yzf"
+index_name = "documents-index"
+
+search_client = SearchClient(endpoint=search_endpoint, index_name=index_name, credential=AzureKeyCredential(search_key))
 
 # Function for Document Upload and Annotation
 def document_upload_page():
@@ -43,6 +53,26 @@ def document_upload_page():
             st.write(f"Page {page_num}")
             st.plotly_chart(fig)
 
+# Query Documents Page with Hybrid Search Implementation
+def query_documents_page():
+    st.title("Nexus DMS: Query Documents")
+
+    query = st.text_input("Enter your query:")
+    if query:
+        results = perform_hybrid_search(query)
+
+        st.subheader("Search Results")
+        for i, result in enumerate(results):
+            st.write(f"**Result {i + 1}:**")
+            st.write(f"**Score:** {result['@search.score']}")
+            st.write(f"**Content:** {result.get('content', 'No content available')}")
+            st.json(result)
+
+        # Optionally call GPT-4 to refine or analyze results
+        refined_response = refine_query_with_gpt4(query, results)
+        st.subheader("GPT-4 Analysis and Insights")
+        st.write(refined_response)
+
 # Main App Function
 def main():
     logo_path = "nekko logo black bg.png"
@@ -56,6 +86,29 @@ def main():
         document_upload_page()
     elif page == "Query Documents":
         query_documents_page()
+
+# Azure Cognitive Search Hybrid Search
+def perform_hybrid_search(query):
+    search_results = search_client.search(
+        search_text=query,
+        query_type=QueryType.SEMANTIC,
+        query_language="en-us",
+        semantic_configuration_name="default",
+        top=5
+    )
+    results = [result for result in search_results]
+    return results
+
+# Refine Query Results Using GPT-4
+def refine_query_with_gpt4(query, search_results):
+    formatted_results = json.dumps(search_results, indent=4)
+    refined_query = f"""
+    Given the following search results for the query "{query}", provide insights, summaries, and recommendations for leadership:
+    
+    Results:
+    {formatted_results}
+    """
+    return call_gpt4_api(refined_query)
 
 # Helper Functions
 # Updated Azure OCR and Bounding Box Extraction
@@ -192,25 +245,6 @@ def call_gpt4_api(prompt):
     response = requests.post(url, headers=headers, data=json.dumps(payload))
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
-
-# Querying function to handle document-based queries
-def query_documents(query):
-    file_path = os.path.join("tmp", 'nexus_dms.xlsx')
-    df = pd.read_excel(file_path)
-    relevant_data = df.to_json(orient="records")
-
-    query_prompt = f"""  
-    Given the extracted data from the uploaded documents, please respond to the user queries. 
-    (Consider only unique entries rejecting duplicates. Duplicates are most likely a bug so its better if it goes unmentioned). 
-
-    # Important: Remember these answers are for the leadership team so any valuable additional insights are always appreciated.
-
-    # Note : If the customer query requires a bar chart or graph, generate the equivalent Python code with all necessary information 
-    Answer: {query}
-    """
-
-    response = call_gpt4_api(query_prompt)
-    return response
 
 if __name__ == "__main__":
     main()
